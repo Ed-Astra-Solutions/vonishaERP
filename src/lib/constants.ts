@@ -1,0 +1,36 @@
+// Class / section list — ported verbatim from management_desktop.dart `classTypes`.
+export const CLASS_TYPES = [
+  "Montessori",
+  "Pre KG (ECCE)",
+  "LKG (ECCE)",
+  "UKG (ECCE)",
+  "1 (BSP)",
+  "2 (BSP)",
+  "3 (BSP)",
+  "4 (BSP)",
+  "5 (BSP)",
+  "6 (BSP)",
+  "7 (BSP)",
+  "8 (BSP)",
+  "10 (SFP)",
+  "12th NIOS (SFP)",
+  "OBE Level A - Grade 1",
+  "OBE Level A - Grade 2",
+  "OBE Level A - Grade 3",
+  "OBE Level B - Grade 4",
+  "OBE Level B - Grade 5",
+  "OBE Level C - Grade 6",
+  "OBE Level C - Grade 7",
+  "OBE Level C - Grade 8",
+  "Vidya Vikas Begur",
+  "St Ignatius",
+  "Goverment High School Begur ",
+  "Govt Hulimangal",
+  "Hongasandra",
+  "Doddatoguru",
+  "Singasandra",
+  "Kudlu",
+];
+
+export const SEX_OPTIONS = ["Male", "Female", "Other"];
+export const SALARY_SCHEMES = ["Monthly", "Consolidated", "Daily Wage", "Hourly"];

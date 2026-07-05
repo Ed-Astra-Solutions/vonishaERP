@@ -1,36 +1,76 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Vonisha ERP — Next.js
 
-## Getting Started
+Modern rebuild of the Vonisha school ERP (originally a Flutter web app in
+`../vonishaERPSourceCode`). **All screens and functionality are preserved with the
+exact same API processing** — the app talks to the same Express/MongoDB backend
+(`../vonishaServer`) using the same endpoints, form-urlencoded bodies and
+`Authorization: Bearer <token>` auth. Only the UI was upgraded.
 
-First, run the development server:
+## Stack
+- Next.js 16 (App Router) + React 19 + TypeScript
+- Tailwind CSS v4 + shadcn/ui (base-ui) components
+- Zustand (user + UI state), axios (API), react-hook-form + zod, sonner (toasts)
+- Auth guard via `src/proxy.ts` (Next 16 renamed `middleware` → `proxy`)
 
+## Key difference from the Flutter app
+The Flutter app rendered every screen under a single `/` route by swapping a
+sidebar index. **Here every screen has its own unique URL** (`/admissions`,
+`/attendance`, `/salary`, `/master/analytics`, `/faculty/students`, …).
+
+## Getting started
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+npm run dev        # http://localhost:3000 (or next free port)
+```
+The backend must be running for API-backed screens:
+```bash
+cd ../vonishaServer && npm install && npm start   # needs MongoDB
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Configuration
+`NEXT_PUBLIC_API_BASE` selects the backend:
+- `.env.local`     → `http://localhost:3000` (dev)
+- `.env.production`→ `https://vonishaapi.edastra.in` (prod)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+If unset, `src/lib/config.ts` falls back to localhost in dev and the AWS server in
+production. In real deployments, set `NEXT_PUBLIC_API_BASE` in the environment.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Project layout
+```
+src/
+  app/(auth)/          signin, forgot-password, reset-password
+  app/(dashboard)/     all authenticated screens (own URL each) + AppShell layout
+  lib/api/             client.ts + auth.ts  (1:1 port of connect_server.dart)
+  lib/                 auth, cookies, date, format, staff, constants, config
+  components/shell/    Sidebar (role-aware), Topbar, ThemeToggle, nav config
+  components/common/   PageHeader, StatCard, EmptyState
+  stores/              user, ui, surveys
+  types/erp.ts         ports of models/erp/*.dart
+  proxy.ts             auth route guard
+```
 
-## Learn More
+## Roles
+Matches the Flutter role model from `/getinfo`:
+- `type === "f"` → Faculty (faculty-scoped nav + screens)
+- otherwise Admin/Master/Staff; master-admin features gated by
+  `type.split(" ")[1] === "m"`.
 
-To learn more about Next.js, take a look at the following resources:
+## Scripts
+```bash
+npm run dev      # dev server
+npm run build    # production build (Turbopack)
+npm run start    # serve production build
+npx tsc --noEmit # typecheck
+npx eslint src   # lint
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Screens (all ported)
+Auth: signin, forgot/reset password ·
+Academics: dashboard, admissions*, enrollment, calendar*, time-table, events* ·
+Staff & HR: attendance*, salary*, leave-management, manage-users*, surveys ·
+Admin: fixed-assets*, inventory, file-storage, documents ·
+Master: analytics, approvals, archives, compliance, user-roles ·
+Faculty: home, academic-records*, students*, help-center, terms
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`*` = wired to the live backend API. The rest were local/mock in the Flutter app
+too and remain local, using the ported data models.
