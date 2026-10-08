@@ -1,7 +1,7 @@
 import { getCookie, removeCookie, setCookie } from "./cookies";
 import { TOKEN_COOKIE } from "./config";
 import { AuthService } from "./api/auth";
-import type { Permissions } from "./permissions";
+import { legacyRole, type Permissions } from "./permissions";
 import { isErr } from "./api/client";
 
 export function getToken(): string | null {
@@ -68,9 +68,11 @@ export async function bootstrapUser(): Promise<UserInfo | null | typeof OFFLINE>
     lastName: data.lastName ?? "",
     email: data.email ?? "",
     type: data.type ?? "",
-    role: data.role ?? "",
-    roleName: data.roleName ?? data.role ?? "",
-    permissions: data.permissions ?? {},
+    // A pre-RBAC server sends only the legacy `type`; derive the same defaults the
+    // new server would, so the app keeps working whichever deploys first.
+    role: data.role ?? legacyRole(data.type).key,
+    roleName: data.roleName ?? data.role ?? legacyRole(data.type).name,
+    permissions: data.permissions ?? legacyRole(data.type).permissions,
     token,
   };
 }

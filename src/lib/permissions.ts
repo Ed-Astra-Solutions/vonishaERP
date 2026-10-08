@@ -102,6 +102,45 @@ export function canVisit(user: WithPermissions | null | undefined, pathname: str
   return modules === null || can(user, modules);
 }
 
+// Built-in role defaults for a server that predates RBAC (no `permissions` on
+// /getinfo). Mirrors SYSTEM_ROLES in vonishaServer/config/rbac.js.
+const ALL_MODULES: ModuleKey[] = [
+  "dashboard", "students", "student_attendance", "registration_fees", "classes",
+  "academic_records", "admissions", "calendar", "timetable", "notifications",
+  "enrollment", "staff_attendance", "salary", "leave", "surveys", "fixed_assets",
+  "inventory", "asset_stock", "file_storage", "documents", "roles", "analytics",
+  "approvals", "archives", "compliance",
+];
+const MASTER_ONLY: ModuleKey[] = ["analytics", "approvals", "archives", "compliance"];
+
+export function legacyRole(type: string | undefined): {
+  key: string;
+  name: string;
+  permissions: Permissions;
+} {
+  const v: Permissions = {};
+  if (type === "f") {
+    for (const m of ["dashboard", "students", "registration_fees", "student_attendance", "staff_attendance", "calendar", "timetable", "notifications"] as ModuleKey[]) v[m] = "view";
+    v.academic_records = "edit";
+    return { key: "faculty", name: "Faculty", permissions: v };
+  }
+  if (type === "am") return { key: "assets_manager", name: "Assets Manager", permissions: { asset_stock: "edit" } };
+  if (type === "c") {
+    for (const m of ["dashboard", "students", "academic_records", "calendar", "timetable", "notifications"] as ModuleKey[]) v[m] = "view";
+    v.student_attendance = "edit";
+    return { key: "coordinator", name: "Coordinator", permissions: v };
+  }
+  const master = (type ?? "").split(" ")[1] === "m";
+  for (const m of ALL_MODULES) v[m] = "edit";
+  if (!master) {
+    for (const m of MASTER_ONLY) v[m] = "none";
+    v.asset_stock = "none";
+  }
+  return master
+    ? { key: "master", name: "Master Admin", permissions: v }
+    : { key: "admin", name: "Admin", permissions: v };
+}
+
 // Faculty keep their own dashboard; everyone else with dashboard access gets the
 // institution one.
 export function dashboardHref(role: string | undefined): string {
