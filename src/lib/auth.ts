@@ -1,6 +1,7 @@
 import { getCookie, removeCookie, setCookie } from "./cookies";
 import { TOKEN_COOKIE } from "./config";
 import { AuthService } from "./api/auth";
+import type { Permissions } from "./permissions";
 import { isErr } from "./api/client";
 
 export function getToken(): string | null {
@@ -15,29 +16,38 @@ export function clearToken(): void {
   removeCookie(TOKEN_COOKIE);
 }
 
-// Shape returned by /getinfo (see landing_page.dart usage).
+// Shape returned by /getinfo.
 export interface UserInfo {
   firstName: string;
   lastName: string;
   email: string;
-  type: string; // "f" (faculty) or space-encoded roles e.g. "A M S P"
+  // Legacy role code kept for the old Flutter client: "f", "am", "c", "x" (a role
+  // with no legacy code) or a space-encoded admin string like "A M S P".
+  type: string;
+  /** RBAC role key, e.g. "admin", "faculty", "finance" or a custom role. */
+  role: string;
+  roleName: string;
+  /** Per-module access from the user's role. See lib/permissions.ts. */
+  permissions: Permissions;
   token: string;
 }
 
 /**
- * Bootstraps the current user from the token cookie, mirroring the logic in
- * landing_page.dart: call getInfo, and on `success` build the user object.
- * Faculty ("f") keeps its type; everyone else is normalised to "A M S P".
- * Returns null when the token is missing/invalid (caller should redirect).
+ * Bootstraps the current user from the token cookie via /getinfo, which carries the
+ * user's role and per-module permissions. Returns null when the token is missing or
+ * invalid (caller should redirect), or OFFLINE when the server couldn't be reached —
+ * the session may be fine, so callers offer a retry instead of signing the user out.
  */
-export async function bootstrapUser(): Promise<UserInfo | null> {
+export const OFFLINE = "offline" as const;
+
+export async function bootstrapUser(): Promise<UserInfo | null | typeof OFFLINE> {
   const token = getToken();
   if (!token) return null;
 
   const res = await AuthService.getInfo(token);
   if (isErr(res)) {
-    clearToken();
-    return null;
+    // Keep the cookie: a flaky phone connection shouldn't sign the user out.
+    return OFFLINE;
   }
   const data = res.data as {
     success?: boolean;
@@ -45,6 +55,9 @@ export async function bootstrapUser(): Promise<UserInfo | null> {
     lastName?: string;
     email?: string;
     type?: string;
+    role?: string;
+    roleName?: string;
+    permissions?: Permissions;
   };
   if (!data?.success) {
     clearToken();
@@ -54,30 +67,16 @@ export async function bootstrapUser(): Promise<UserInfo | null> {
     firstName: data.firstName ?? "",
     lastName: data.lastName ?? "",
     email: data.email ?? "",
-    // Preserve faculty ("f") and assets manager ("am"); everyone else keeps the
-    // existing space-encoded admin/master default so their gating is unchanged.
-    type: data.type === "f" ? "f" : data.type === "am" ? "am" : "A M S P",
+    type: data.type ?? "",
+    role: data.role ?? "",
+    roleName: data.roleName ?? data.role ?? "",
+    permissions: data.permissions ?? {},
     token,
   };
 }
 
-// Role helpers, preserving the Flutter role model.
-export function isFaculty(type: string | undefined): boolean {
-  return type === "f";
-}
-
-// Assets Manager — a dedicated role for the asset stock module.
+// Legacy role-code helper, still used to badge Assets Manager accounts. Access
+// decisions use `can` from lib/permissions.ts.
 export function isAssetsManager(type: string | undefined): boolean {
   return type === "am";
-}
-
-// Admin — everyone who is neither faculty nor assets manager (approves asset requests).
-export function isAdmin(type: string | undefined): boolean {
-  return !isFaculty(type) && !isAssetsManager(type);
-}
-
-// Master-admin gate: `type.split(" ")[1] == "m"` in home_desktop.dart.
-export function isMaster(type: string | undefined): boolean {
-  if (!type) return false;
-  return type.split(" ")[1] === "m";
 }

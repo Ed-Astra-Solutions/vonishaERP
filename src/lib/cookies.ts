@@ -10,10 +10,12 @@ export function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-export function setCookie(name: string, value: string, days = 7): void {
+// 30 days matches the session token's own expiry (vonishaServer methods/access.js).
+export function setCookie(name: string, value: string, days = 30): void {
   if (typeof document === "undefined") return;
   const expires = new Date(Date.now() + days * 864e5).toUTCString();
-  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax`;
+  const secure = location.protocol === "https:" ? "; Secure" : "";
+  document.cookie = `${name}=${encodeURIComponent(value)}; expires=${expires}; path=/; SameSite=Lax${secure}`;
 }
 
 export function removeCookie(name: string): void {

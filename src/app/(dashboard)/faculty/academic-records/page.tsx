@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { AuthService } from "@/lib/api/auth";
 import { isErr } from "@/lib/api/client";
 import { getToken } from "@/lib/auth";
-import { CLASS_TYPES } from "@/lib/constants";
+import { useClasses } from "@/lib/class-access";
 import { PageHeader } from "@/components/common/page-header";
 import { StatCard } from "@/components/common/stat-card";
 import { EmptyState } from "@/components/common/empty-state";
@@ -47,7 +47,12 @@ interface Student {
 // and present/absent. Students load via getStudentDetails (live API); marks entry
 // is a local gradebook (the Flutter screen kept marks client-side pre-upload).
 export default function AcademicRecordsPage() {
-  const [cls, setCls] = useState(CLASS_TYPES[0]);
+  // Class list comes from the server (admin-editable at /master/classes).
+  const { ids: classIds, loading: classesLoading } = useClasses();
+  const [cls, setCls] = useState("");
+  useEffect(() => {
+    if (classIds.length && !classIds.includes(cls)) setCls(classIds[0]);
+  }, [classIds, cls]);
   const [exam, setExam] = useState("Mid-Term");
   const [rows, setRows] = useState<Student[]>([]);
   const [loading, setLoading] = useState(false);
@@ -115,10 +120,12 @@ export default function AcademicRecordsPage() {
           <div className="mb-4 flex flex-wrap items-end gap-3">
             <div className="w-full max-w-xs space-y-1.5">
               <Label className="text-xs">Class / Section</Label>
-              <Select value={cls} onValueChange={(v) => setCls(v ?? CLASS_TYPES[0])}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select value={cls} onValueChange={(v) => setCls(v ?? cls)} disabled={classesLoading}>
+                <SelectTrigger>
+                  <SelectValue placeholder={classesLoading ? "Loading classes…" : "Select a class"} />
+                </SelectTrigger>
                 <SelectContent>
-                  {CLASS_TYPES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                  {classIds.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

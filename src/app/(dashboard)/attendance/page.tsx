@@ -9,6 +9,8 @@ import { isErr } from "@/lib/api/client";
 import { getToken } from "@/lib/auth";
 import { todayDDMMYYYY } from "@/lib/format";
 import { staffFullName, type StaffUser } from "@/lib/staff";
+import { can } from "@/lib/permissions";
+import { useUserStore } from "@/stores/user";
 import { PageHeader } from "@/components/common/page-header";
 import { StatCard } from "@/components/common/stat-card";
 import { EmptyState } from "@/components/common/empty-state";
@@ -28,6 +30,7 @@ const STATUSES: { key: Status; label: string; cls: string }[] = [
 // Staff attendance marking. Loads staff via getUserDetails and submits a marked
 // set via updateStaffAttendance (date = today ddMMyyyy), preserving the Flutter flow.
 export default function AttendancePage() {
+  const canMark = can(useUserStore((s) => s.user), "staff_attendance", "edit");
   const [staff, setStaff] = useState<StaffUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -89,6 +92,7 @@ export default function AttendancePage() {
         title="Attendance"
         description="Mark today's staff attendance."
         actions={
+          canMark &&
           !loading &&
           staff.length > 0 && (
             <Button onClick={submit} disabled={saving}>

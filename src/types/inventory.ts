@@ -27,6 +27,7 @@ export interface InventoryItem {
   reorderLevel: number;
   unit?: string;
   location?: string;
+  note?: string;
   purchaseDate?: string;
   warrantyUntil?: string;
   lastRestocked?: string;

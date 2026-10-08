@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CalendarClock, PartyPopper } from "lucide-react";
 
-import { CLASS_TYPES } from "@/lib/constants";
+import { useClasses } from "@/lib/class-access";
 import { PageHeader } from "@/components/common/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -24,7 +24,12 @@ type Grid = Record<string, Record<string, string>>;
 
 // Local timetable builder (time_table_desktop.dart had no server calls).
 export default function TimeTablePage() {
-  const [cls, setCls] = useState(CLASS_TYPES[0]);
+  // Class list comes from the server (admin-editable at /master/classes).
+  const { ids: classIds, loading: classesLoading } = useClasses();
+  const [cls, setCls] = useState("");
+  useEffect(() => {
+    if (classIds.length && !classIds.includes(cls)) setCls(classIds[0]);
+  }, [classIds, cls]);
   const [grids, setGrids] = useState<Record<string, Grid>>({});
 
   const grid = grids[cls] ?? {};
@@ -52,10 +57,12 @@ export default function TimeTablePage() {
           <CardTitle className="flex items-center gap-2">
             <CalendarClock className="size-5 text-primary" /> Weekly schedule
           </CardTitle>
-          <Select value={cls} onValueChange={(v) => setCls(v ?? CLASS_TYPES[0])}>
-            <SelectTrigger className="w-64"><SelectValue /></SelectTrigger>
+          <Select value={cls} onValueChange={(v) => setCls(v ?? cls)} disabled={classesLoading}>
+            <SelectTrigger className="w-64">
+              <SelectValue placeholder={classesLoading ? "Loading classes…" : "Select a class"} />
+            </SelectTrigger>
             <SelectContent>
-              {CLASS_TYPES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              {classIds.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
             </SelectContent>
           </Select>
         </CardHeader>

@@ -4,7 +4,8 @@ import { useCallback, useEffect } from "react";
 
 import { AuthService } from "@/lib/api/auth";
 import { isErr } from "@/lib/api/client";
-import { getToken, isAdmin } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { useUserStore } from "@/stores/user";
 import { useInventoryStore } from "@/stores/inventory";
 import type { InventoryRequest } from "@/types/inventory";
@@ -14,7 +15,7 @@ const POLL_MS = 20000;
 /** Renders nothing. For admins, polls the pending inventory-approval count into the store. */
 export function AdminInventoryWatcher() {
   const user = useUserStore((s) => s.user);
-  const admin = isAdmin(user?.type);
+  const admin = can(user, "inventory", "edit");
   const setPending = useInventoryStore((s) => s.setPendingApprovals);
 
   const load = useCallback(async () => {

@@ -299,6 +299,7 @@ function ItemsTable({
                 <td>
                   <div className="font-medium">{i.name}</div>
                   <div className="text-xs text-muted-foreground">{i.category || "—"}{i.location ? ` · ${i.location}` : ""}</div>
+                  {i.note && <div className="text-xs text-muted-foreground/80 italic">{i.note}</div>}
                 </td>
                 <td>{i.vendor || "—"}</td>
                 <td className="text-right tabular-nums">{inr(i.unitPrice)}</td>

@@ -1,71 +1,20 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Camera, Upload, X, FileText, Film, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { AuthService } from "@/lib/api/auth";
-import { isErr } from "@/lib/api/client";
-import { getToken } from "@/lib/auth";
+import { type UploadProgress, uploadBatch } from "@/lib/s3-upload";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import {
   type MediaItem,
-  type MediaKind,
   type MediaModule,
   type MediaPurpose,
   acceptFor,
-  extFromName,
-  kindOfContentType,
-  maxSizeFor,
+  fileDisplayName,
+  formatBytes,
 } from "@/types/media";
-
-// Upload a single file straight to the private S3 bucket via a presigned PUT URL.
-// The server signs the URL against the exact content type, so we must PUT with the
-// same header. Returns the persisted MediaItem (only the object key + metadata).
-async function uploadToS3(
-  file: File,
-  purpose: MediaPurpose,
-  module: MediaModule,
-): Promise<MediaItem> {
-  const contentType = file.type || "application/octet-stream";
-  const kind = kindOfContentType(contentType);
-  if (file.size > maxSizeFor(kind)) {
-    throw new Error(`${file.name} is too large (max ${Math.round(maxSizeFor(kind) / 1048576)} MB)`);
-  }
-  const res = await AuthService.getUploadUrl(getToken() ?? "", {
-    purpose,
-    module,
-    contentType,
-    ext: extFromName(file.name),
-    size: file.size,
-  });
-  if (isErr(res)) throw new Error("Connection Error");
-  const body = res.data as {
-    success?: boolean;
-    msg?: string;
-    key?: string;
-    uploadUrl?: string;
-    kind?: MediaKind;
-  };
-  if (!body.success || !body.uploadUrl || !body.key) {
-    throw new Error(body.msg ?? "Upload is not available");
-  }
-  const put = await fetch(body.uploadUrl, {
-    method: "PUT",
-    body: file,
-    headers: { "Content-Type": contentType },
-  });
-  if (!put.ok) throw new Error(`Upload failed (${put.status})`);
-  return {
-    key: body.key,
-    kind: body.kind ?? kind,
-    purpose,
-    contentType,
-    size: file.size,
-    uploadedAt: new Date().toISOString(),
-  };
-}
 
 export function MediaUpload({
   purpose,
@@ -75,6 +24,9 @@ export function MediaUpload({
   label,
   description,
   required = false,
+  maxItems,
+  capture = "environment",
+  allowCamera = true,
 }: {
   purpose: MediaPurpose;
   module: MediaModule;
@@ -83,36 +35,68 @@ export function MediaUpload({
   label: string;
   description?: string;
   required?: boolean;
+  /** Cap on attached files; when 1, a new upload replaces the existing one. */
+  maxItems?: number;
+  /** Which camera the "Take photo" button opens (front camera for profile shots). */
+  capture?: "environment" | "user";
+  /** Hide the camera button for things nobody photographs (a resume PDF). */
+  allowCamera?: boolean;
 }) {
-  const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<UploadProgress | null>(null);
   // Object URLs for instant local preview (no round-trip to S3 for what we just uploaded).
   const [previews, setPreviews] = useState<Record<string, string>>({});
   const cameraRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const busy = progress !== null;
 
-  async function handleFiles(files: FileList | null) {
-    if (!files || files.length === 0) return;
-    setBusy(true);
-    const added: MediaItem[] = [];
+  // Object URLs are process-wide allocations; drop them when the field unmounts.
+  useEffect(() => {
+    return () => {
+      Object.values(previews).forEach((url) => URL.revokeObjectURL(url));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  async function handleFiles(list: FileList | null) {
+    if (!list || list.length === 0) return;
+    const files = Array.from(list);
+    setProgress({ fraction: 0, done: 0, total: files.length });
+
+    // Previews are keyed by the local File; we map them onto object keys once the
+    // uploads come back, so a partly-failed batch never mislabels a thumbnail.
+    const localUrls = files.map((f) =>
+      f.type.startsWith("image/") ? URL.createObjectURL(f) : null,
+    );
+
+    const { uploaded, errors } = await uploadBatch(files, purpose, module, setProgress);
+
     const newPreviews: Record<string, string> = {};
-    for (const file of Array.from(files)) {
-      try {
-        const item = await uploadToS3(file, purpose, module);
-        added.push(item);
-        if (item.kind === "image") newPreviews[item.key] = URL.createObjectURL(file);
-      } catch (e) {
-        toast.error(e instanceof Error ? e.message : "Upload failed");
+    uploaded.forEach((item) => {
+      const idx = files.findIndex((f) => f.name === item.originalName);
+      const url = idx >= 0 ? localUrls[idx] : null;
+      if (item.kind === "image" && url) newPreviews[item.key] = url;
+    });
+    // Release previews for files that never made it.
+    localUrls.forEach((url, i) => {
+      if (url && !Object.values(newPreviews).includes(url)) {
+        URL.revokeObjectURL(localUrls[i]!);
       }
-    }
-    if (added.length) {
+    });
+
+    if (uploaded.length) {
       setPreviews((p) => ({ ...p, ...newPreviews }));
-      onChange([...value, ...added]);
+      const next = [...value, ...uploaded];
+      onChange(maxItems ? next.slice(-maxItems) : next);
     }
-    setBusy(false);
+    errors.forEach((msg) => toast.error(msg));
+
+    setProgress(null);
     if (cameraRef.current) cameraRef.current.value = "";
     if (fileRef.current) fileRef.current.value = "";
   }
 
+  // Detaching here only edits the draft — the object is deleted from S3 when the
+  // record is saved and the server sees the key is no longer referenced.
   function remove(key: string) {
     onChange(value.filter((m) => m.key !== key));
     setPreviews((p) => {
@@ -122,6 +106,8 @@ export function MediaUpload({
       return next;
     });
   }
+
+  const atLimit = maxItems !== undefined && maxItems !== 1 && value.length >= maxItems;
 
   return (
     <div className="space-y-2">
@@ -134,32 +120,50 @@ export function MediaUpload({
       {description && <p className="text-xs text-muted-foreground">{description}</p>}
 
       <div className="flex flex-wrap items-center gap-2">
+        {allowCamera && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy || atLimit}
+            onClick={() => cameraRef.current?.click()}
+          >
+            <Camera className="size-4" /> Take photo
+          </Button>
+        )}
         <Button
           type="button"
           variant="outline"
           size="sm"
-          disabled={busy}
-          onClick={() => cameraRef.current?.click()}
-        >
-          <Camera className="size-4" /> Take photo
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={busy}
+          disabled={busy || atLimit}
           onClick={() => fileRef.current?.click()}
         >
           <Upload className="size-4" /> Upload file
         </Button>
-        {busy && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+        {progress && (
+          <span className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            {progress.total > 1
+              ? `Uploading ${progress.done + 1} of ${progress.total} · ${Math.round(progress.fraction * 100)}%`
+              : `Uploading ${Math.round(progress.fraction * 100)}%`}
+          </span>
+        )}
       </div>
+
+      {progress && (
+        <div className="h-1 w-full overflow-hidden rounded-full bg-muted">
+          <div
+            className="h-full rounded-full bg-primary transition-[width] duration-200"
+            style={{ width: `${Math.max(3, Math.round(progress.fraction * 100))}%` }}
+          />
+        </div>
+      )}
 
       <input
         ref={cameraRef}
         type="file"
         accept="image/*"
-        capture="environment"
+        capture={capture}
         hidden
         onChange={(e) => handleFiles(e.target.files)}
       />
@@ -167,36 +171,40 @@ export function MediaUpload({
         ref={fileRef}
         type="file"
         accept={acceptFor[purpose]}
-        multiple
+        multiple={maxItems !== 1}
         hidden
         onChange={(e) => handleFiles(e.target.files)}
       />
 
       {value.length > 0 && (
         <div className="flex flex-wrap gap-2 pt-1">
-          {value.map((m) => (
-            <div
-              key={m.key}
-              className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-md border bg-muted"
-            >
-              {m.kind === "image" && previews[m.key] ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={previews[m.key]} alt="upload" className="h-full w-full object-cover" />
-              ) : m.kind === "video" ? (
-                <Film className="size-7 text-muted-foreground" />
-              ) : (
-                <FileText className="size-7 text-muted-foreground" />
-              )}
-              <button
-                type="button"
-                onClick={() => remove(m.key)}
-                className="absolute right-0.5 top-0.5 rounded-full bg-background/90 p-0.5 text-foreground shadow hover:bg-background"
-                aria-label="Remove"
+          {value.map((m) => {
+            const name = fileDisplayName(m);
+            return (
+              <div
+                key={m.key}
+                title={`${name} · ${formatBytes(m.size)}`}
+                className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-md border bg-muted"
               >
-                <X className="size-3.5" />
-              </button>
-            </div>
-          ))}
+                {m.kind === "image" && previews[m.key] ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={previews[m.key]} alt={name} className="h-full w-full object-cover" />
+                ) : m.kind === "video" ? (
+                  <Film className="size-7 text-muted-foreground" />
+                ) : (
+                  <FileText className="size-7 text-muted-foreground" />
+                )}
+                <button
+                  type="button"
+                  onClick={() => remove(m.key)}
+                  className="absolute right-0.5 top-0.5 rounded-full bg-background/90 p-0.5 text-foreground shadow hover:bg-background"
+                  aria-label={`Remove ${name}`}
+                >
+                  <X className="size-3.5" />
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

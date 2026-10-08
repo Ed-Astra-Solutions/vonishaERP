@@ -6,6 +6,7 @@ import type { AssetStock } from "@/types/assets";
 interface Cell {
   quantity: number;
   damaged: number;
+  note?: string;
   has: boolean;
 }
 
@@ -37,6 +38,7 @@ export function AssetMatrix({
       lookup.set(`${r.name}|||${r.center}`, {
         quantity: r.quantity,
         damaged: r.damagedQuantity,
+        note: r.note,
         has: true,
       });
       colTotals.set(r.center, (colTotals.get(r.center) ?? 0) + r.quantity);
@@ -163,6 +165,9 @@ export function AssetMatrix({
               <span className="inline-block size-1.5 rounded-full" style={{ backgroundColor: "var(--destructive)" }} />
               {active.damaged.toLocaleString()} damaged
             </div>
+          )}
+          {active.note && (
+            <div className="mt-0.5 max-w-52 text-muted-foreground">{active.note}</div>
           )}
         </div>
       )}

@@ -11,26 +11,25 @@ export function Logo({
   showBeta?: boolean;
 }) {
   return (
-    <div className={cn("flex items-center gap-2.5", className)}>
-      <div className="flex size-9 items-center justify-center overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-black/5">
+    <div className={cn("flex items-center gap-3.5", className)}>
+      <div className="flex size-14 items-center justify-center overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-black/5">
         <Image
           src="/brand/vonisha.jpeg"
           alt="Vonisha"
-          width={36}
-          height={36}
-          className="size-9 object-cover"
+          width={56}
+          height={56}
+          className="size-14 object-cover"
         />
       </div>
       <div className="leading-tight">
         <div className="flex items-center gap-1.5">
-          <span className="text-[15px] font-semibold tracking-tight">Vonisha ERP</span>
+          <span className="text-2xl font-semibold tracking-tight">Vonisha ERP</span>
           {showBeta && (
-            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
+            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-xs font-bold uppercase tracking-wide text-primary">
               Beta
             </span>
           )}
         </div>
-        <span className="text-[11px] text-muted-foreground">by Ed-Astra</span>
       </div>
     </div>
   );

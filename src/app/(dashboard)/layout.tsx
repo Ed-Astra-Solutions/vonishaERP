@@ -1,29 +1,38 @@
 "use client";
 
-import { useEffect, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
-import { Loader2 } from "lucide-react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { Loader2, WifiOff } from "lucide-react";
 
-import { bootstrapUser } from "@/lib/auth";
+import { bootstrapUser, OFFLINE } from "@/lib/auth";
+import { canVisit, homeFor } from "@/lib/permissions";
 import { useUserStore } from "@/stores/user";
 import { SidebarNav } from "@/components/shell/sidebar";
 import { Topbar } from "@/components/shell/topbar";
 import { Logo } from "@/components/brand/logo";
+import { Button } from "@/components/ui/button";
 import { AssetApprovalBanner } from "@/components/assets/asset-approval-banner";
 import { AdminApprovalsWatcher } from "@/components/assets/admin-approvals-watcher";
 import { InventoryApprovalBanner } from "@/components/inventory/inventory-approval-banner";
 import { AdminInventoryWatcher } from "@/components/inventory/admin-inventory-watcher";
 
-// Authenticated shell. Bootstraps the current user via /getinfo (mirrors
-// landing_page.dart), guards the route, and renders the sidebar + topbar.
+// Authenticated shell. Bootstraps the current user (role + permissions) via /getinfo,
+// keeps them off routes their role doesn't grant, and renders the sidebar + topbar.
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, loading, setUser } = useUserStore();
+  const [offline, setOffline] = useState(false);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     let active = true;
+    setOffline(false);
     bootstrapUser().then((info) => {
       if (!active) return;
+      if (info === OFFLINE) {
+        setOffline(true);
+        return;
+      }
       if (!info) {
         router.replace("/signin");
         return;
@@ -35,7 +44,27 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     };
   }, [router, setUser]);
 
-  if (loading || !user) {
+  useEffect(() => load(), [load]);
+
+  const allowed = !user || canVisit(user, pathname);
+  useEffect(() => {
+    if (user && !allowed) router.replace(homeFor(user));
+  }, [user, allowed, router]);
+
+  if (offline) {
+    return (
+      <div className="flex min-h-dvh flex-1 flex-col items-center justify-center gap-4 bg-muted/30 px-6 text-center">
+        <Logo showBeta />
+        <WifiOff className="size-6 text-muted-foreground" />
+        <p className="max-w-xs text-sm text-muted-foreground">
+          Couldn&apos;t reach the server. Check your connection and try again.
+        </p>
+        <Button onClick={load}>Retry</Button>
+      </div>
+    );
+  }
+
+  if (loading || !user || !allowed) {
     return (
       <div className="flex min-h-dvh flex-1 flex-col items-center justify-center gap-6 bg-muted/30">
         <Logo showBeta />
@@ -55,7 +84,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar />
-        <main className="flex-1 bg-muted/30 p-4 md:p-6 lg:p-8">
+        <main className="min-w-0 flex-1 bg-muted/30 p-4 md:p-6 lg:p-8">
           <AdminApprovalsWatcher />
           <AdminInventoryWatcher />
           <AssetApprovalBanner />

@@ -6,7 +6,8 @@ import { toast } from "sonner";
 
 import { AuthService } from "@/lib/api/auth";
 import { isErr } from "@/lib/api/client";
-import { getToken, isAssetsManager } from "@/lib/auth";
+import { getToken } from "@/lib/auth";
+import { can } from "@/lib/permissions";
 import { useUserStore } from "@/stores/user";
 import { assetActionLabel, type AssetRequest } from "@/types/assets";
 import { type MediaItem } from "@/types/media";
@@ -22,7 +23,7 @@ const POLL_MS = 20000;
  */
 export function AssetApprovalBanner() {
   const user = useUserStore((s) => s.user);
-  const isAM = isAssetsManager(user?.type);
+  const isAM = can(user, "asset_stock", "edit");
   const [items, setItems] = useState<AssetRequest[]>([]);
   const [busyId, setBusyId] = useState<string | null>(null);
   // Optional extra media the AM attaches at confirmation time, keyed by request id.

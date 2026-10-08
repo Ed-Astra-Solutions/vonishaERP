@@ -7,7 +7,8 @@ import { toast } from "sonner";
 
 import { AuthService } from "@/lib/api/auth";
 import { isErr } from "@/lib/api/client";
-import { setToken, bootstrapUser, isAssetsManager, isFaculty } from "@/lib/auth";
+import { setToken, bootstrapUser, OFFLINE } from "@/lib/auth";
+import { homeFor } from "@/lib/permissions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -31,13 +32,15 @@ export default function SigninPage() {
 
   // Mirrors signin_desktop.dart onPressed: validate, login, set cookie, redirect.
   async function handleSignin() {
-    const validEmail = isEmail(email);
+    // Phone keyboards add trailing spaces and capitalise the first letter.
+    const cleanEmail = email.trim().toLowerCase();
+    const validEmail = isEmail(cleanEmail);
     setEmailValid(validEmail);
     setPasswordTouched(true);
     if (!validEmail || password.length < 8) return;
 
     setLoading(true);
-    const res = await AuthService.login(email, password);
+    const res = await AuthService.login(cleanEmail, password);
     if (isErr(res)) {
       setLoading(false);
       toast.error("Connection Error");
@@ -46,11 +49,9 @@ export default function SigninPage() {
     const data = res.data as { success?: boolean; token?: string; msg?: string };
     if (data.success && data.token) {
       setToken(String(data.token)); // cookie 't', 7-day default
-      // Role-aware landing: assets managers → /assets, faculty → /faculty, else dashboard.
+      // Land on the role's home (faculty → /faculty, assets manager → /assets, …).
       const info = await bootstrapUser();
-      if (isAssetsManager(info?.type)) router.replace("/assets");
-      else if (isFaculty(info?.type)) router.replace("/faculty");
-      else router.replace("/dashboard");
+      router.replace(info && info !== OFFLINE ? homeFor(info) : "/dashboard");
     } else {
       setLoading(false);
       toast.error(`Failed to login\nERR: ${data.msg ?? "Unknown error"}`);
@@ -59,7 +60,7 @@ export default function SigninPage() {
 
   return (
     <Card className="w-full max-w-md border-border/60 shadow-lg">
-      <CardContent className="p-8">
+      <CardContent className="p-6 sm:p-8">
         <div className="mb-8 text-center">
           <h2 className="text-2xl font-semibold tracking-tight">Welcome back</h2>
           <p className="mt-1.5 text-sm text-muted-foreground">
@@ -81,9 +82,13 @@ export default function SigninPage() {
               <Input
                 id="email"
                 type="email"
-                autoComplete="email"
-                placeholder="you@vonisha.org"
-                maxLength={40}
+                inputMode="email"
+                autoComplete="username"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                placeholder="you@vonishafoundation.org"
+                maxLength={254}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="pl-9"
@@ -104,7 +109,7 @@ export default function SigninPage() {
                 type={showPassword ? "text" : "password"}
                 autoComplete="current-password"
                 placeholder="••••••••"
-                maxLength={40}
+                maxLength={128}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 onBlur={() => setPasswordTouched(true)}
@@ -137,9 +142,10 @@ export default function SigninPage() {
           <button
             type="button"
             onClick={() => {
-              const validEmail = isEmail(email);
+              const cleanEmail = email.trim().toLowerCase();
+              const validEmail = isEmail(cleanEmail);
               setEmailValid(validEmail);
-              if (validEmail) router.push(`/forgot-password/${encodeURIComponent(email)}`);
+              if (validEmail) router.push(`/forgot-password/${encodeURIComponent(cleanEmail)}`);
             }}
             className="text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
           >

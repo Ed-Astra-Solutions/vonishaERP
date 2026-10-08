@@ -2,6 +2,8 @@
 // Dart `.index` serialization used in toJson/fromJson. Label/color helpers and
 // computed getters are ported as functions.
 
+import type { MediaItem } from "./media";
+
 /* ============================ Admissions ============================ */
 export enum AdmissionStatus {
   enquiry,
@@ -47,19 +49,48 @@ export interface AdmissionEnquiry {
   followUps: FollowUp[];
 }
 
+export interface EnrollmentBankDetails {
+  bankName?: string;
+  accountNumber?: string;
+  ifscCode?: string;
+}
+
 export interface EmployeeEnrollment {
   id: string;
   firstName: string;
   lastName: string;
   email: string;
-  phone: string;
+  phone: string; // primary
+  alternatePhone?: string;
   designation: string;
-  department: string;
+  department: string; // center / location (Excel sheet)
   employeeCategory: string; // teaching | nonTeaching | management
+  employmentType?: string; // Full-time | Part-time
+  sex?: string;
+  dateOfBirth?: string; // ISO
   joiningDate: string; // ISO
+  salary?: number;
+  ctc?: number;
+  salaryScheme?: string;
+  qualification?: string;
+  aadharNumber?: string;
+  panNumber?: string;
+  pfNumber?: string;
+  uan?: string;
+  bankDetails: EnrollmentBankDetails;
+  punchNumber?: string;
+  address?: string;
+  personalEmail?: string;
+  remarks?: string;
   documentUrl?: string;
-  personalDetails: Record<string, unknown>;
-  bankDetails: Record<string, unknown>;
+  /** Passport photo (camera or gallery) — one private S3 object, kept as an array
+   *  so it shares the MediaItem plumbing with every other attachment. */
+  profilePic?: MediaItem[];
+  /** Enrollment paperwork (Aadhaar, PAN, passbook, mark sheets, photos, resume,
+   *  other). Aadhaar is compulsory; the rest are optional. Each entry is a private
+   *  S3 object key and also surfaces in the admin file browser. */
+  documents?: MediaItem[];
+  personalDetails?: Record<string, unknown>;
   status: string; // pending | active | inactive
 }
 

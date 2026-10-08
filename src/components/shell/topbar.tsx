@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, LogOut, Menu, User as UserIcon } from "lucide-react";
 
@@ -12,6 +14,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuGroup,
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -24,6 +27,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { SidebarNav } from "./sidebar";
+import { can, homeFor } from "@/lib/permissions";
 
 function initials(first?: string, last?: string) {
   return `${first?.[0] ?? ""}${last?.[0] ?? ""}`.toUpperCase() || "U";
@@ -33,6 +37,7 @@ export function Topbar() {
   const router = useRouter();
   const user = useUserStore((s) => s.user);
   const clear = useUserStore((s) => s.clear);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   function signOut() {
     clearToken();
@@ -43,7 +48,8 @@ export function Topbar() {
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-background/80 px-4 backdrop-blur md:px-6">
       {/* Mobile nav trigger */}
-      <Sheet>
+      {/* Controlled so tapping a link closes the drawer on phones. */}
+      <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetTrigger
           render={
             <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu" />
@@ -53,19 +59,32 @@ export function Topbar() {
         </SheetTrigger>
         <SheetContent side="left" className="w-72 p-0">
           <SheetTitle className="sr-only">Navigation</SheetTitle>
-          <SidebarNav />
+          <SidebarNav onNavigate={() => setMenuOpen(false)} />
         </SheetContent>
       </Sheet>
 
+      <Link href={homeFor(user)} aria-label="Ed-Astra" className="flex items-center">
+        <Image
+          src="/brand/ed_astra_lt.png"
+          alt="Ed-Astra"
+          width={112}
+          height={28}
+          priority
+          className="h-7 w-auto dark:brightness-0 dark:invert"
+        />
+      </Link>
+
       <div className="ml-auto flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Notifications"
-          render={<Link href="/notifications" />}
-        >
-          <Bell className="size-5" />
-        </Button>
+        {can(user, "notifications") && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Notifications"
+            render={<Link href="/notifications" />}
+          >
+            <Bell className="size-5" />
+          </Button>
+        )}
         <ThemeToggle />
 
         <DropdownMenu>
@@ -80,16 +99,23 @@ export function Topbar() {
             </span>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel className="flex flex-col">
-              <span>{user ? `${user.firstName} ${user.lastName}` : "Account"}</span>
-              <span className="text-xs font-normal text-muted-foreground">{user?.email}</span>
-            </DropdownMenuLabel>
+            {/* base-ui requires a Group around a GroupLabel — without it opening the
+                menu threw and Sign out was unreachable. */}
+            <DropdownMenuGroup>
+              <DropdownMenuLabel className="flex flex-col">
+                <span>{user ? `${user.firstName} ${user.lastName}` : "Account"}</span>
+                <span className="truncate text-xs font-normal text-muted-foreground">{user?.email}</span>
+                {user?.roleName && (
+                  <span className="mt-1 text-xs font-medium text-primary">{user.roleName}</span>
+                )}
+              </DropdownMenuLabel>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
             <DropdownMenuItem render={<Link href="/help-center" />}>
               <UserIcon className="size-4" /> Help Center
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onSelect={signOut}>
+            <DropdownMenuItem variant="destructive" onClick={signOut}>
               <LogOut className="size-4" /> Sign out
             </DropdownMenuItem>
           </DropdownMenuContent>

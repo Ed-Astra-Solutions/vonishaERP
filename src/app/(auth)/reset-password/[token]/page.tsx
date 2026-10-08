@@ -19,6 +19,7 @@ export default function ResetPasswordPage() {
   const router = useRouter();
 
   const [name, setName] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
   const [validating, setValidating] = useState(true);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -37,6 +38,7 @@ export default function ResetPasswordPage() {
       }
       const data = res.data as { success?: boolean; msg?: string };
       if (data.success) setName(data.msg ?? "");
+      else setLinkError(data.msg ?? "Invalid link");
       setValidating(false);
     });
     return () => {
@@ -94,10 +96,26 @@ export default function ResetPasswordPage() {
     );
   }
 
+  if (linkError) {
+    return (
+      <Card className="w-full max-w-md border-border/60 shadow-lg">
+        <CardContent className="flex flex-col items-center p-6 text-center sm:p-8">
+          <h2 className="text-xl font-semibold">{linkError}</h2>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            Ask your admin for a new link, or use &ldquo;Forgot password?&rdquo; on the sign-in page.
+          </p>
+          <Button className="mt-6" onClick={() => router.replace("/signin")}>
+            Go to sign in
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
     <Card className="w-full max-w-md border-border/60 shadow-lg">
-      <CardContent className="p-8">
-        <h2 className="text-2xl font-semibold tracking-tight">Set a new password</h2>
+      <CardContent className="p-6 sm:p-8">
+        <h2 className="text-2xl font-semibold tracking-tight">Set your password</h2>
         <p className="mt-1.5 text-sm text-muted-foreground">
           {name ? `Hi ${name}, choose a new password.` : "Choose a new password."}
         </p>
@@ -116,7 +134,8 @@ export default function ResetPasswordPage() {
               <Input
                 id="password"
                 type={showPassword ? "text" : "password"}
-                maxLength={40}
+                autoComplete="new-password"
+                maxLength={128}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="px-9"
@@ -143,7 +162,8 @@ export default function ResetPasswordPage() {
             <Input
               id="confirm"
               type={showPassword ? "text" : "password"}
-              maxLength={40}
+              autoComplete="new-password"
+              maxLength={128}
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               aria-invalid={mismatch}
@@ -153,7 +173,7 @@ export default function ResetPasswordPage() {
 
           <Button type="submit" className="w-full" size="lg" disabled={loading}>
             {loading && <Loader2 className="size-4 animate-spin" />}
-            Reset password
+            Save password
           </Button>
         </form>
       </CardContent>

@@ -3,24 +3,45 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/brand/logo";
-import { adminNav, facultyNav, assetsManagerNav, type NavSection } from "./nav";
-import { isFaculty, isMaster, isAssetsManager } from "@/lib/auth";
+import { nav, type NavSection } from "./nav";
+import { can, dashboardHref } from "@/lib/permissions";
+import type { UserInfo } from "@/lib/auth";
 import { useUserStore } from "@/stores/user";
 import { useAssetsStore } from "@/stores/assets";
 import { useInventoryStore } from "@/stores/inventory";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-function sectionsForUser(type: string | undefined): NavSection[] {
-  if (isFaculty(type)) return facultyNav;
-  if (isAssetsManager(type)) return assetsManagerNav;
-  const master = isMaster(type);
-  return adminNav
+// The sidebar is the role's permissions: an entry shows when the role holds at least
+// view on its module. Empty sections drop out.
+function sectionsFor(user: UserInfo | null): NavSection[] {
+  return nav
     .map((section) => ({
       ...section,
-      items: section.items.filter((i) => (i.role === "master" ? master : true)),
+      items: section.items
+        .filter((i) => !i.module || can(user, i.module))
+        .map((i) => (i.href === "/dashboard" ? { ...i, href: dashboardHref(user?.role) } : i)),
     }))
     .filter((section) => section.items.length > 0);
+}
+
+// The nav entry the current path belongs to. Nested routes ("/attendance/students")
+// live under a parent entry ("/attendance"), so prefix matching alone would light up
+// both — the longest matching href wins instead. Dashboards are exact-match only:
+// "/dashboard" and "/faculty" are prefixes of half the app.
+function activeHref(pathname: string, sections: NavSection[]): string | null {
+  let best: string | null = null;
+  for (const section of sections) {
+    for (const item of section.items) {
+      const matches =
+        pathname === item.href ||
+        (item.href !== "/dashboard" &&
+          item.href !== "/faculty" &&
+          pathname.startsWith(`${item.href}/`));
+      if (matches && (best === null || item.href.length > best.length)) best = item.href;
+    }
+  }
+  return best;
 }
 
 export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
@@ -28,14 +49,16 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const user = useUserStore((s) => s.user);
   const pendingApprovals = useAssetsStore((s) => s.pendingApprovals);
   const pendingInventory = useInventoryStore((s) => s.pendingApprovals);
-  const sections = sectionsForUser(user?.type);
+  const sections = sectionsFor(user);
+  const current = activeHref(pathname, sections);
 
   return (
-    <div className="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+    <div className="flex h-full min-h-0 flex-col bg-sidebar text-sidebar-foreground">
       <div className="flex h-16 items-center border-b border-sidebar-border px-5">
         <Logo />
       </div>
-      <ScrollArea className="flex-1 px-3 py-4">
+      {/* min-h-0: without it the list overflows instead of scrolling (phone drawer). */}
+      <ScrollArea className="min-h-0 flex-1 px-3 py-4">
         <nav className="space-y-6">
           {sections.map((section) => (
             <div key={section.title}>
@@ -44,11 +67,7 @@ export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
               </p>
               <ul className="space-y-0.5">
                 {section.items.map((item) => {
-                  const active =
-                    pathname === item.href ||
-                    (item.href !== "/dashboard" &&
-                      item.href !== "/faculty" &&
-                      pathname.startsWith(item.href));
+                  const active = current === item.href;
                   const Icon = item.icon;
                   const badgeCount =
                     item.badge === "approvals"

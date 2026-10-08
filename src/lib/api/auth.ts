@@ -1,5 +1,22 @@
 import { getWithAuth, postForm, type ApiResult } from "./client";
 import type { MediaItem, MediaModule, MediaPurpose } from "@/types/media";
+import type { ClassPayload } from "@/types/classes";
+import type { EmployeeEnrollment } from "@/types/erp";
+import type { Permissions } from "@/lib/permissions";
+
+// The editable fields of a class, minus `id` — updateClass needs `id` to mean the
+// *current* name and passes the new one as `newId`. Form bodies are flat, so aliases
+// travel as a comma-separated string.
+function classBody(c: ClassPayload): Record<string, string> {
+  return {
+    center: c.center,
+    level: c.level ?? "",
+    order: c.order === undefined ? "" : String(c.order),
+    inchargeName: c.inchargeName,
+    inchargeEmail: c.inchargeEmail ?? "",
+    inchargeAliases: (c.inchargeAliases ?? []).join(", "),
+  };
+}
 
 // Direct 1:1 port of connect_server.dart (AuthService). Same endpoints, same body
 // keys, same Bearer-token auth, same `JSON.stringify(data)` for the `data` field,
@@ -46,16 +63,67 @@ export const AuthService = {
     return postForm("/changename", { firstName, lastName, token }, token);
   },
 
-  forgotPassword(email: string, dob: string, code: string): Promise<ApiResult> {
-    return postForm("/forgotpassword", { email, dob, code });
+  requestPasswordReset(email: string): Promise<ApiResult> {
+    return postForm("/requestPasswordReset", { email });
   },
 
   compareTokenPass(token: string): Promise<ApiResult> {
     return postForm("/comparetokenpass", {}, token);
   },
 
-  sendResetLink(token: string, name: string, email: string): Promise<ApiResult> {
-    return postForm("/sendresetlink", { name, email }, token);
+  // ---- Accounts, roles & access (RBAC) --------------------------------------
+  getRoles(token: string): Promise<ApiResult> {
+    return getWithAuth("/getRoles", token);
+  },
+
+  saveRole(
+    token: string,
+    role: { key?: string; name: string; description: string; permissions: Permissions },
+  ): Promise<ApiResult> {
+    return postForm(
+      "/saveRole",
+      {
+        key: role.key ?? "",
+        name: role.name,
+        description: role.description,
+        permissions: JSON.stringify(role.permissions),
+      },
+      token,
+    );
+  },
+
+  deleteRole(token: string, key: string): Promise<ApiResult> {
+    return postForm("/deleteRole", { key }, token);
+  },
+
+  getAccounts(token: string): Promise<ApiResult> {
+    return getWithAuth("/getAccounts", token);
+  },
+
+  createAccount(
+    token: string,
+    a: { email: string; firstName: string; lastName: string; number: string; roleKey: string },
+  ): Promise<ApiResult> {
+    return postForm("/createAccount", a, token);
+  },
+
+  resendInvite(token: string, email: string): Promise<ApiResult> {
+    return postForm("/resendInvite", { email }, token);
+  },
+
+  assignRole(token: string, email: string, roleKey: string): Promise<ApiResult> {
+    return postForm("/assignRole", { email, roleKey }, token);
+  },
+
+  updateAccount(
+    token: string,
+    a: { email: string; firstName?: string; lastName?: string; number?: string; disabled?: boolean },
+  ): Promise<ApiResult> {
+    return postForm(
+      "/updateAccount",
+      { ...a, disabled: a.disabled === undefined ? undefined : String(a.disabled) },
+      token,
+    );
   },
 
   // ---- Venues / bookings ---------------------------------------------------
@@ -146,6 +214,42 @@ export const AuthService = {
     return postForm("/getstudentattendance", { class: data }, token);
   },
 
+  // ---- Student attendance (per class, per day) -----------------------------
+  // Access is decided server-side by canMarkAttendance: admins and coordinators get
+  // every class, faculty only the classes they are the person-in-charge of.
+  //
+  // The paths say "ClassAttendance" because Express matches case-insensitively, so
+  // "/getStudentAttendance" would hit the legacy "/getstudentattendance" handler.
+
+  /** Roster + whatever is already recorded for `date` (ISO yyyy-mm-dd). */
+  getStudentAttendance(token: string, cl: string, date: string): Promise<ApiResult> {
+    return postForm("/getClassAttendance", { class: cl, date }, token);
+  },
+
+  /** Replaces the whole class-day. `data` is [{ index, status }]. */
+  saveStudentAttendance(
+    token: string,
+    cl: string,
+    date: string,
+    data: { index: number; status: string }[],
+  ): Promise<ApiResult> {
+    return postForm(
+      "/saveClassAttendance",
+      { class: cl, date, data: JSON.stringify(data) },
+      token,
+    );
+  },
+
+  /** Per-day totals for every marked day in [from, to] (both ISO yyyy-mm-dd). */
+  getStudentAttendanceRange(
+    token: string,
+    cl: string,
+    from: string,
+    to: string,
+  ): Promise<ApiResult> {
+    return postForm("/getClassAttendanceRange", { class: cl, from, to }, token);
+  },
+
   // ---- Enquiries -----------------------------------------------------------
   addEnquiry(
     token: string,
@@ -180,9 +284,9 @@ export const AuthService = {
     return getWithAuth("/getFixedAssets", token);
   },
 
-  // ---- Media (invoice / evidence) — private S3 via presigned URLs ----------
+  // ---- Media (invoices, evidence, documents) — private S3 presigned URLs ----
   // Ask the server for a short-lived presigned PUT URL. The browser then uploads
-  // the file straight to the private bucket (see uploadToS3 in media-upload.tsx).
+  // the file straight to the private bucket (see lib/s3-upload.ts).
   getUploadUrl(
     token: string,
     payload: {
@@ -191,6 +295,7 @@ export const AuthService = {
       contentType: string;
       ext: string;
       size: number;
+      originalName?: string;
     },
   ): Promise<ApiResult> {
     return postForm(
@@ -201,14 +306,30 @@ export const AuthService = {
         contentType: payload.contentType,
         ext: payload.ext,
         size: String(payload.size),
+        originalName: payload.originalName ?? "",
       },
       token,
     );
   },
 
-  // Resolve stored object keys into short-lived presigned GET URLs for viewing.
-  getMediaUrls(token: string, keys: string[]): Promise<ApiResult> {
-    return postForm("/getMediaUrls", { keys: JSON.stringify(keys) }, token);
+  // Resolve stored object keys into short-lived presigned GET URLs. Pass
+  // `download` for URLs that save the file rather than rendering it inline.
+  getMediaUrls(token: string, keys: string[], download = false): Promise<ApiResult> {
+    return postForm(
+      "/getMediaUrls",
+      { keys: JSON.stringify(keys), download: String(download) },
+      token,
+    );
+  },
+
+  // ---- Admin file storage — every module's files in one index (admin only) --
+  getFileStorage(token: string): Promise<ApiResult> {
+    return getWithAuth("/getFileStorage", token);
+  },
+
+  /** Detach a file from its record and delete it from S3 once unreferenced. */
+  deleteStoredFile(token: string, key: string): Promise<ApiResult> {
+    return postForm("/deleteStoredFile", { key }, token);
   },
 
   // ---- Asset stock management ----------------------------------------------
@@ -294,6 +415,40 @@ export const AuthService = {
 
   removeCenter(token: string, name: string, force?: boolean): Promise<ApiResult> {
     return postForm("/removeCenter", { name, force: force ? "true" : "false" }, token);
+  },
+
+  // ---- Classes & incharges -------------------------------------------------
+  // The class list every class dropdown is built from. Read by anyone signed in;
+  // add/update/remove are admin-only (enforced server-side).
+  getClasses(token: string): Promise<ApiResult> {
+    return getWithAuth("/getClasses", token);
+  },
+
+  addClass(token: string, c: ClassPayload): Promise<ApiResult> {
+    return postForm("/addClass", { id: c.id, ...classBody(c) }, token);
+  },
+
+  /** `id` is the class's current name; `c.id` is what it should be renamed to. */
+  updateClass(token: string, id: string, c: ClassPayload): Promise<ApiResult> {
+    return postForm("/updateClass", { id, newId: c.id, ...classBody(c) }, token);
+  },
+
+  removeClass(token: string, id: string, force?: boolean): Promise<ApiResult> {
+    return postForm("/removeClass", { id, force: force ? "true" : "false" }, token);
+  },
+
+  // ---- Assets Manager role assignment (admin) ------------------------------
+  getStaffRoles(token: string): Promise<ApiResult> {
+    return getWithAuth("/getStaffRoles", token);
+  },
+
+  setAssetManager(token: string, email: string, assign: boolean): Promise<ApiResult> {
+    return postForm("/setAssetManager", { email, assign: assign ? "true" : "false" }, token);
+  },
+
+  /** Grant / revoke the Coordinator role (`type === 'c'`). Admin-only, server-side. */
+  setCoordinator(token: string, email: string, assign: boolean): Promise<ApiResult> {
+    return postForm("/setCoordinator", { email, assign: assign ? "true" : "false" }, token);
   },
 
   adminAssetChange(
@@ -414,4 +569,63 @@ export const AuthService = {
       token,
     );
   },
+
+  // ---- Staff enrollment (HR Head / admin) ----------------------------------
+  getEnrollment(token: string): Promise<ApiResult> {
+    return getWithAuth("/getEnrollment", token);
+  },
+
+  addEnrollment(token: string, emp: EmployeeEnrollment): Promise<ApiResult> {
+    return postForm("/addEnrollment", enrollmentBody(emp), token);
+  },
+
+  /**
+   * Save an edit. `documents` is the COMPLETE desired list — anything the form
+   * dropped is treated as a deletion and removed from S3 server-side.
+   */
+  updateEnrollment(token: string, emp: EmployeeEnrollment): Promise<ApiResult> {
+    return postForm("/updateEnrollment", enrollmentBody(emp), token);
+  },
+
+  /** Delete the record and every file attached to it. */
+  removeEnrollment(token: string, employeeId: string): Promise<ApiResult> {
+    return postForm("/removeEnrollment", { employeeId }, token);
+  },
 };
+
+// Flatten an enrollment record into the form-urlencoded body the server expects.
+// Nested values (bank details, media arrays) are JSON-encoded, matching the
+// convention every other endpoint here uses.
+function enrollmentBody(emp: EmployeeEnrollment): Record<string, unknown> {
+  return {
+    employeeId: emp.id,
+    firstName: emp.firstName,
+    lastName: emp.lastName ?? "",
+    email: emp.email ?? "",
+    phone: emp.phone ?? "",
+    alternatePhone: emp.alternatePhone ?? "",
+    designation: emp.designation ?? "",
+    department: emp.department ?? "",
+    employeeCategory: emp.employeeCategory ?? "",
+    employmentType: emp.employmentType ?? "",
+    sex: emp.sex ?? "",
+    dateOfBirth: emp.dateOfBirth ?? "",
+    joiningDate: emp.joiningDate ?? "",
+    salary: emp.salary ?? "",
+    ctc: emp.ctc ?? "",
+    salaryScheme: emp.salaryScheme ?? "",
+    qualification: emp.qualification ?? "",
+    aadharNumber: emp.aadharNumber ?? "",
+    panNumber: emp.panNumber ?? "",
+    pfNumber: emp.pfNumber ?? "",
+    uan: emp.uan ?? "",
+    bankDetails: JSON.stringify(emp.bankDetails ?? {}),
+    punchNumber: emp.punchNumber ?? "",
+    address: emp.address ?? "",
+    personalEmail: emp.personalEmail ?? "",
+    remarks: emp.remarks ?? "",
+    status: emp.status ?? "pending",
+    profilePic: JSON.stringify(emp.profilePic ?? []),
+    documents: JSON.stringify(emp.documents ?? []),
+  };
+}

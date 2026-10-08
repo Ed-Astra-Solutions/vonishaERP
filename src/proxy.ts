@@ -19,7 +19,10 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  if (hasToken && (isPublic || pathname === "/")) {
+  // Password links stay reachable while signed in, so an invite opened on a phone
+  // that already has a session still works.
+  const isPasswordLink = pathname.startsWith("/reset-password");
+  if (hasToken && !isPasswordLink && (isPublic || pathname === "/")) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);

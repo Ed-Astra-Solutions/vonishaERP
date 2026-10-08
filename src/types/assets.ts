@@ -25,6 +25,7 @@ export interface AssetStock {
   _id: string;
   center: string;
   name: string;
+  note?: string;
   quantity: number;
   damagedQuantity: number;
   updatedAt: string;

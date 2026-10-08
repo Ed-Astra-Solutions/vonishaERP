@@ -8,6 +8,7 @@ import { useAssetsStore } from "@/stores/assets";
 const TABS = [
   { label: "Stock", href: "/admin/fixed-assets", exact: true },
   { label: "Approvals", href: "/admin/fixed-assets/approvals", exact: false, badge: "approvals" as const },
+  { label: "Managers", href: "/admin/fixed-assets/managers", exact: false },
   { label: "Log", href: "/admin/fixed-assets/log", exact: false },
 ];
 

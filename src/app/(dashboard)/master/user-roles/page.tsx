@@ -1,128 +1,134 @@
 "use client";
 
-import { useState } from "react";
-import { UserCog, Shield, Check } from "lucide-react";
-import { toast } from "sonner";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { KeyRound, Loader2, MailWarning, ShieldCheck, UserCheck, Users } from "lucide-react";
 
+import { AuthService } from "@/lib/api/auth";
+import { isErr } from "@/lib/api/client";
+import { getToken } from "@/lib/auth";
+import { useUserStore } from "@/stores/user";
 import { PageHeader } from "@/components/common/page-header";
 import { StatCard } from "@/components/common/stat-card";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { UsersPanel } from "@/components/access/users-panel";
+import { RolesPanel, grantCeiling } from "@/components/access/roles-panel";
+import type { AccountRow, RolesPayload } from "@/types/access";
 
-type RoleType = "Admin" | "Master Admin" | "Faculty";
-interface RoleUser {
-  id: string;
-  name: string;
-  email: string;
-  role: RoleType;
-  active: boolean;
-}
-
-const PERMISSIONS = ["Manage Users", "View Analytics", "Approve Requests", "Manage Payroll", "Edit Documents"];
-
-// Default permission matrix per role type.
-const ROLE_PERMS: Record<RoleType, boolean[]> = {
-  Admin: [true, false, false, true, true],
-  "Master Admin": [true, true, true, true, true],
-  Faculty: [false, false, false, false, true],
-};
-
-// Local role directory (user_roles_desk.dart had no server calls).
-const SEED: RoleUser[] = [
-  { id: "U1", name: "Srinidhi N", email: "srinidhi@vonisha.org", role: "Master Admin", active: true },
-  { id: "U2", name: "Ramesh S", email: "ramesh@vonisha.org", role: "Admin", active: true },
-  { id: "U3", name: "Anitha K", email: "anitha@vonisha.org", role: "Faculty", active: true },
-  { id: "U4", name: "Deepa N", email: "deepa@vonisha.org", role: "Faculty", active: false },
-];
-
-const FILTERS: RoleType[] = ["Admin", "Master Admin", "Faculty"];
-
+// Users, Roles & Access. Every login and every role lives here: add staff (they get a
+// set-password link), move people between roles, and build custom roles from the
+// per-module Hidden / View / Edit matrix. The server enforces the same rules, including
+// "you can't grant more than you have".
 export default function UserRolesPage() {
-  const [users, setUsers] = useState<RoleUser[]>(SEED);
-  const [perms, setPerms] = useState<Record<RoleType, boolean[]>>(ROLE_PERMS);
+  const user = useUserStore((s) => s.user);
+  const [data, setData] = useState<RolesPayload | null>(null);
+  const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
-  function toggleActive(id: string) {
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, active: !u.active } : u)));
+  const reload = useCallback(async () => {
+    const token = getToken() ?? "";
+    const [r, a] = await Promise.all([AuthService.getRoles(token), AuthService.getAccounts(token)]);
+    if (isErr(r) || isErr(a)) {
+      setError("Connection Error");
+      return;
+    }
+    const rb = r.data as { success?: boolean; msg?: string } & RolesPayload;
+    const ab = a.data as { success?: boolean; msg?: string; data?: AccountRow[] };
+    if (!rb.success || !ab.success) {
+      setError(rb.msg ?? ab.msg ?? "Could not load");
+      return;
+    }
+    setError(null);
+    setData(rb);
+    setAccounts(ab.data ?? []);
+  }, []);
+
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  // Roles this admin may assign: none above their own access.
+  const assignable = useMemo(() => {
+    const out = new Set<string>();
+    if (!data) return out;
+    const master = data.myRole === "master";
+    for (const r of data.roles) {
+      const ok = data.modules.every((m) => {
+        const need = { none: 0, view: 1, edit: 2 }[r.permissions[m.key] ?? "none"];
+        return need <= grantCeiling(data.myPermissions, master, m.key);
+      });
+      if (ok) out.add(r.key);
+    }
+    return out;
+  }, [data]);
+
+  if (error) {
+    return (
+      <div>
+        <PageHeader title="Users, Roles & Access" />
+        <p className="text-sm text-destructive">{error}</p>
+      </div>
+    );
   }
-  function togglePerm(role: RoleType, i: number) {
-    setPerms((prev) => ({ ...prev, [role]: prev[role].map((p, j) => (j === i ? !p : p)) }));
-    toast.success("Permissions updated");
+  if (!data) {
+    return (
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="size-4 animate-spin" /> Loading…
+      </div>
+    );
   }
+
+  const active = accounts.filter((a) => a.status === "active").length;
+  const invited = accounts.filter((a) => a.status === "invited").length;
 
   return (
     <div>
-      <PageHeader title="User Roles" description="Roles, permissions and access control." />
+      <PageHeader
+        title="Users, Roles & Access"
+        description="Who can sign in, what each role sees in the sidebar, and what it can change."
+      />
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
-        <StatCard label="Total Users" value={users.length} icon={UserCog} tone="info" />
-        <StatCard label="Active" value={users.filter((u) => u.active).length} icon={Check} tone="success" />
-        <StatCard label="Roles" value={FILTERS.length} icon={Shield} tone="default" />
+      {!data.email.configured && (
+        <p className="mb-4 flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-300">
+          <MailWarning className="mt-0.5 size-4 shrink-0" />
+          <span>
+            Email isn&apos;t set up on the server yet, so invites can&apos;t be emailed. New users still
+            get a link to copy or send on WhatsApp.
+          </span>
+        </p>
+      )}
+
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatCard label="Users" value={accounts.length} icon={Users} tone="info" />
+        <StatCard label="Active" value={active} icon={UserCheck} tone="success" />
+        <StatCard label="Invited" value={invited} icon={KeyRound} tone="default" />
+        <StatCard label="Roles" value={data.roles.length} icon={ShieldCheck} tone="default" />
       </div>
 
-      <Tabs defaultValue="Admin">
+      <Tabs defaultValue="users">
         <TabsList>
-          {FILTERS.map((r) => <TabsTrigger key={r} value={r}>{r}</TabsTrigger>)}
+          <TabsTrigger value="users">Users</TabsTrigger>
+          <TabsTrigger value="roles">Roles &amp; permissions</TabsTrigger>
         </TabsList>
-        {FILTERS.map((role) => (
-          <TabsContent key={role} value={role}>
-            <div className="grid gap-6 lg:grid-cols-3">
-              <Card className="lg:col-span-2">
-                <CardContent className="p-0">
-                  <div className="overflow-x-auto">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Email</TableHead>
-                          <TableHead>Role</TableHead>
-                          <TableHead className="text-right">Active</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {users.filter((u) => u.role === role).map((u) => (
-                          <TableRow key={u.id}>
-                            <TableCell className="font-medium">{u.name}</TableCell>
-                            <TableCell className="text-muted-foreground">{u.email}</TableCell>
-                            <TableCell><Badge variant="secondary">{u.role}</Badge></TableCell>
-                            <TableCell className="text-right">
-                              <Switch checked={u.active} onCheckedChange={() => toggleActive(u.id)} />
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardContent className="p-5">
-                  <h3 className="mb-4 flex items-center gap-2 font-semibold">
-                    <Shield className="size-4 text-primary" /> {role} permissions
-                  </h3>
-                  <ul className="space-y-3">
-                    {PERMISSIONS.map((p, i) => (
-                      <li key={p} className="flex items-center justify-between text-sm">
-                        <span>{p}</span>
-                        <Switch checked={perms[role][i]} onCheckedChange={() => togglePerm(role, i)} />
-                      </li>
-                    ))}
-                  </ul>
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-        ))}
+        <TabsContent value="users" className="mt-4">
+          <UsersPanel
+            accounts={accounts}
+            roles={data.roles}
+            assignable={assignable}
+            canEdit={data.canEdit}
+            myEmail={user?.email ?? ""}
+            reload={reload}
+          />
+        </TabsContent>
+        <TabsContent value="roles" className="mt-4">
+          <RolesPanel
+            roles={data.roles}
+            modules={data.modules}
+            myPermissions={data.myPermissions}
+            myRole={data.myRole}
+            canEdit={data.canEdit}
+            reload={reload}
+          />
+        </TabsContent>
       </Tabs>
     </div>
   );

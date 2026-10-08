@@ -268,6 +268,7 @@ export function AssetStockView({ mode, hideHeader = false }: { mode: "admin" | "
         onOpenChange={setChangeOpen}
         mode={mode}
         centers={centers}
+        rows={rows}
         prefill={prefill}
         onDone={load}
       />
@@ -354,6 +355,7 @@ function ChangeDialog({
   onOpenChange,
   mode,
   centers,
+  rows,
   prefill,
   onDone,
 }: {
@@ -361,6 +363,7 @@ function ChangeDialog({
   onOpenChange: (o: boolean) => void;
   mode: "admin" | "am";
   centers: string[];
+  rows: AssetStock[];
   prefill: { center: string; assetName: string } | null;
   onDone: () => void;
 }) {
@@ -378,6 +381,32 @@ function ChangeDialog({
   const isAdmin = mode === "admin";
   const needsDest = action === "transfer";
   const isDamage = action === "damage";
+  const isAdd = action === "add";
+
+  // What the chosen center actually holds — remove/damage/transfer can only touch this,
+  // so the asset field becomes a picker of in-stock items instead of free text.
+  const centerRows = useMemo(
+    () => rows.filter((r) => r.center === center),
+    [rows, center],
+  );
+  const inStock = useMemo(
+    () => centerRows.filter((r) => r.quantity > 0),
+    [centerRows],
+  );
+  // Every known category name (all centers) — suggestions when adding, so names stay
+  // consistent instead of drifting into duplicates ("steel Almirah" vs "Steel Almirah").
+  const allNames = useMemo(
+    () => Array.from(new Set(rows.map((r) => r.name))).sort(),
+    [rows],
+  );
+  const existingRow = centerRows.find(
+    (r) => r.name.toLowerCase() === assetName.trim().toLowerCase(),
+  );
+  const knownElsewhere = rows.find(
+    (r) => r.name.toLowerCase() === assetName.trim().toLowerCase(),
+  );
+  const available = existingRow?.quantity ?? 0;
+  const overStock = !isAdd && existingRow != null && Number(quantity) > available;
 
   // Media actually sent depends on the action: purchase invoice only when adding;
   // damage proof (mandatory) when marking damaged, otherwise optional evidence.
@@ -389,7 +418,11 @@ function ChangeDialog({
   async function submit() {
     const q = Number(quantity);
     if (!center || !assetName.trim() || !(q > 0)) {
-      toast.error("Fill center, asset and a positive quantity");
+      toast.error("Fill center, item and a positive quantity");
+      return;
+    }
+    if (!isAdd && !existingRow) {
+      toast.error("Pick an item that is in stock at this center");
       return;
     }
     if (needsDest && (!toCenter || toCenter === center)) {
@@ -400,11 +433,15 @@ function ChangeDialog({
       toast.error("Attach a photo or video of the damage");
       return;
     }
+    if (overStock) {
+      toast.error(`Only ${available} available at ${center}`);
+      return;
+    }
     const payload = {
       action,
       center,
       toCenter: needsDest ? toCenter : undefined,
-      assetName: assetName.trim(),
+      assetName: (knownElsewhere?.name ?? assetName).trim(),
       quantity: q,
       note: note.trim() || undefined,
       media,
@@ -465,16 +502,48 @@ function ChangeDialog({
           )}
 
           <div className="space-y-2">
-            <Label>Asset</Label>
-            <Input
-              value={assetName}
-              onChange={(e) => setAssetName(e.target.value)}
-              placeholder="e.g. White Board"
-            />
-            {action === "add" && (
-              <p className="text-xs text-muted-foreground">
-                Enter a new or existing asset name for this center.
-              </p>
+            <Label>{isAdd ? "Item" : "Item (in stock at this center)"}</Label>
+            {isAdd ? (
+              <>
+                <Input
+                  value={assetName}
+                  onChange={(e) => setAssetName(e.target.value)}
+                  placeholder="e.g. White Board"
+                  list="asset-name-suggestions"
+                />
+                <datalist id="asset-name-suggestions">
+                  {allNames.map((n) => <option key={n} value={n} />)}
+                </datalist>
+                {knownElsewhere ? (
+                  <p className="text-xs text-muted-foreground">
+                    Existing category{existingRow ? ` — ${available} currently at this center.` : "."}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    Pick an existing name from the suggestions, or type a new one to create it.
+                  </p>
+                )}
+              </>
+            ) : (
+              <Select
+                value={existingRow ? existingRow.name : ""}
+                onValueChange={(v) => setAssetName(v ?? "")}
+                disabled={!center}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={center ? "Select item" : "Select a center first"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {inStock.map((r) => (
+                    <SelectItem key={r._id} value={r.name}>
+                      {r.name} · {r.quantity} available
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {!isAdd && center && inStock.length === 0 && (
+              <p className="text-xs text-muted-foreground">This center has no items in stock.</p>
             )}
           </div>
 
@@ -483,10 +552,18 @@ function ChangeDialog({
             <Input
               type="number"
               min={1}
+              max={!isAdd && existingRow ? available : undefined}
               value={quantity}
               onChange={(e) => setQuantity(e.target.value)}
               placeholder="0"
             />
+            {!isAdd && existingRow && (
+              <p className={`text-xs ${overStock ? "text-destructive" : "text-muted-foreground"}`}>
+                {overStock
+                  ? `Only ${available} available at ${center}.`
+                  : `${available} available at ${center}.`}
+              </p>
+            )}
           </div>
 
           <div className="space-y-2">
@@ -528,7 +605,7 @@ function ChangeDialog({
         </div>
         <DialogFooter>
           <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          <Button onClick={submit} disabled={saving || (isDamage && damage.length === 0)}>
+          <Button onClick={submit} disabled={saving || overStock || (isDamage && damage.length === 0)}>
             {saving && <Loader2 className="size-4 animate-spin" />}
             {isAdmin ? "Apply change" : "Submit request"}
           </Button>

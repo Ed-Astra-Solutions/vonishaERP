@@ -8,6 +8,8 @@ import { AuthService } from "@/lib/api/auth";
 import { isErr } from "@/lib/api/client";
 import { getToken } from "@/lib/auth";
 import { todayDDMMYYYY, formatDDMMYYYY } from "@/lib/format";
+import { can } from "@/lib/permissions";
+import { useUserStore } from "@/stores/user";
 import { PageHeader } from "@/components/common/page-header";
 import { StatCard } from "@/components/common/stat-card";
 import { EmptyState } from "@/components/common/empty-state";
@@ -35,6 +37,7 @@ interface Enquiry {
 }
 
 export default function AdmissionsPage() {
+  const canAdd = can(useUserStore((s) => s.user), "admissions", "edit");
   const [data, setData] = useState<Enquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -141,8 +144,8 @@ export default function AdmissionsPage() {
                 <Label htmlFor="remarks">Remarks</Label>
                 <Textarea id="remarks" value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Notes, class applied, source…" rows={4} />
               </div>
-              <Button type="submit" className="w-full" disabled={saving}>
-                {saving && <Loader2 className="size-4 animate-spin" />} Save enquiry
+              <Button type="submit" className="w-full" disabled={saving || !canAdd}>
+                {saving && <Loader2 className="size-4 animate-spin" />} {canAdd ? "Save enquiry" : "View only"}
               </Button>
             </form>
           </CardContent>

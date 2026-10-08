@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { useUserStore } from "@/stores/user";
+import { canVisit } from "@/lib/permissions";
 import { PageHeader } from "@/components/common/page-header";
 import { StatCard } from "@/components/common/stat-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,7 +49,7 @@ export default function DashboardPage() {
             <CardTitle>Quick actions</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 sm:grid-cols-2">
-            {quickLinks.map((link) => {
+            {quickLinks.filter((link) => canVisit(user, link.href)).map((link) => {
               const Icon = link.icon;
               return (
                 <Link
@@ -74,7 +75,7 @@ export default function DashboardPage() {
           <CardContent className="space-y-3 text-sm">
             <Row label="Name" value={`${user?.firstName ?? ""} ${user?.lastName ?? ""}`.trim()} />
             <Row label="Email" value={user?.email ?? "—"} />
-            <Row label="Role" value={user?.type === "f" ? "Faculty" : "Administrator"} />
+            <Row label="Role" value={user?.roleName || "—"} />
           </CardContent>
         </Card>
       </div>

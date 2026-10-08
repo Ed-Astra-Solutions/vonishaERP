@@ -9,6 +9,8 @@ import { isErr } from "@/lib/api/client";
 import { getToken } from "@/lib/auth";
 import { getMonth } from "@/lib/date";
 import { formatDDMMYYYY } from "@/lib/format";
+import { can } from "@/lib/permissions";
+import { useUserStore } from "@/stores/user";
 import { PageHeader } from "@/components/common/page-header";
 import { EmptyState } from "@/components/common/empty-state";
 import { Button } from "@/components/ui/button";
@@ -51,6 +53,7 @@ interface MonthBucket {
 const EVENT_TYPES = ["Holiday", "Special Event"];
 
 export default function CalendarPage() {
+  const canAdd = can(useUserStore((s) => s.user), "calendar", "edit");
   const [data, setData] = useState<MonthBucket[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -117,6 +120,7 @@ export default function CalendarPage() {
         title="Calendar"
         description="Holidays, special events and important dates."
         actions={
+          canAdd && (
           <Dialog open={open} onOpenChange={setOpen}>
             <DialogTrigger render={<Button />}>
               <Plus className="size-4" /> Add event
@@ -162,6 +166,7 @@ export default function CalendarPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          )
         }
       />
 
